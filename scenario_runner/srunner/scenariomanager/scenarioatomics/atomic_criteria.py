@@ -2523,7 +2523,7 @@ class ReverseVehicleResumeCriterion(Criterion):
         self,
         actor,
         goal_location,
-        route_center_y=134.423233,
+        route_center_y = 134.423233,
         name="ReverseVehicleResumeCriterion",
         goal_dist_threshold=5.0,
         center_recover_threshold=2.0,
@@ -2561,63 +2561,3 @@ class ReverseVehicleResumeCriterion(Criterion):
 
         return new_status
     
-
-    def __init__(self, actor, hazard_actor, name="EbikeDetectionAndDecelerateCriterion", 
-                    brake_threshold=0.05, throttle_reduction=0.2, 
-                    min_decelerate_duration=0.3, max_response_time=8.0, 
-                    terminate_on_failure=False):
-        super().__init__(name, actor, terminate_on_failure=terminate_on_failure)
-        self.hazard_actor = hazard_actor
-        self.brake_threshold = brake_threshold
-        self.throttle_reduction = throttle_reduction
-        self.min_decelerate_duration = min_decelerate_duration
-        self.max_response_time = max_response_time
-        self._activated = False
-        self._start_time = None
-        self._decelerate_start_time = None
-        self._initial_throttle = None
-        self.test_status = "INIT"
-        self.actual_value = 0
-        self.success_value = 1
-    
-    def update(self):
-        if not self.actor or not self.hazard_actor:
-            return py_trees.common.Status.RUNNING
-        
-        if self._initial_throttle is None:
-            control = self.actor.get_control()
-            self._initial_throttle = control.throttle
-        
-        hazard_velocity = self.hazard_actor.get_velocity()
-        hazard_speed = (hazard_velocity.x**2 + hazard_velocity.y**2 + hazard_velocity.z**2) ** 0.5
-        
-        if not self._activated and hazard_speed > 0.5:
-            self._activated = True
-            self._start_time = GameTime.get_time()
-        
-        if not self._activated:
-            return py_trees.common.Status.RUNNING
-        
-        control = self.actor.get_control()
-        current_time = GameTime.get_time()
-        
-        is_decelerating = (control.brake >= self.brake_threshold or 
-                            (self._initial_throttle - control.throttle) >= self.throttle_reduction)
-        
-        if is_decelerating:
-            if self._decelerate_start_time is None:
-                self._decelerate_start_time = current_time
-            decelerate_duration = current_time - self._decelerate_start_time
-            if decelerate_duration >= self.min_decelerate_duration:
-                self.test_status = "SUCCESS"
-                self.actual_value = 1
-                return py_trees.common.Status.SUCCESS
-        else:
-            self._decelerate_start_time = None
-        
-        if current_time - self._start_time > self.max_response_time:
-            self.test_status = "FAILURE"
-            self.actual_value = 0
-            return py_trees.common.Status.RUNNING
-        
-        return py_trees.common.Status.RUNNING
