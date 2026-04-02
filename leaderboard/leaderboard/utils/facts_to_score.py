@@ -6,7 +6,7 @@ def compute_gate(common_facts):
 
 def compute_penalty(common_facts):
     penalty = 1.0
-    
+
     min_ttc = common_facts.get("min_ttc")
     if min_ttc is not None:
         if min_ttc >= 2.0:
@@ -25,80 +25,19 @@ def compute_penalty(common_facts):
 
     return penalty
 
-# scenario specific score calculate
+# 场景特定分数计算
 
-# missing car
-
-# High speed temporary construction
-
-# High-speed reckless lane cutting
-
-# Highway accident vehicle
-def score_high_speed_accident(common_facts, private_facts):
-    """计算高速深夜事故场景得分"""
-    base_score = 0.0
-
-    # 根据我们之前定义的权重分配
-    if private_facts["brake_response"]:
-        base_score += 55.0
-    if private_facts["safe_bypass"]:
-        base_score += 30.0
-    if private_facts["resume_route"]:
-        base_score += 15.0
-
-    gate = compute_gate(common_facts)
-    penalty = compute_penalty(common_facts)
-    final_score = base_score * gate * penalty
-
-    return {
-        "base_score": base_score,
-        "gate": gate,
-        "penalty": penalty,
-        "final_score": final_score,
-    }
-# Trucks encountered during construction
-
-# Drive into the roundabout
-
-# Four students crossing the road
-def score_ghost_probe(common_facts, private_facts):
-    """计算鬼探头场景得分"""
-    base_score = 0.0
-
-    if private_facts["scooter_decelerate"]:
-        base_score += 25.0  # 识别遮挡物并减速
-    if private_facts["pedestrian_stop"]:
-        base_score += 55.0  # 彻底刹停让行
-    if private_facts["pedestrian_resume"]:
-        base_score += 20.0  # 安全起步
-
-    gate = compute_gate(common_facts)
-    penalty = compute_penalty(common_facts)
-    final_score = base_score * gate * penalty
-
-    return {
-        "base_score": base_score,
-        "gate": gate,
-        "penalty": penalty,
-        "final_score": final_score,
-    }
-# avoid a disabled vehicle
-
-# Slanted motor and children
-
-# reverse vehicle
 def score_reverse_vehicle(common_facts, private_facts):
     base_score = 0.0
-    # BaseScore: private fatcs calculate
+
     if private_facts["brake_response"]:
         base_score += 55.0
     if private_facts["safe_bypass"]:
         base_score += 20.0
     if private_facts["resume_route"]:
         base_score += 25.0
-    # Gate: colision
+
     gate = compute_gate(common_facts)
-    # Penalty: minttc and out_of_road
     penalty = compute_penalty(common_facts)
     final_score = base_score * gate * penalty
 
@@ -109,6 +48,52 @@ def score_reverse_vehicle(common_facts, private_facts):
         "final_score": final_score,
     }
 
-# crazy motor
+def score_roundabout_merge_conflict(common_facts, private_facts):
+    """
+    计算大转盘交互场景得分:
+    识别并减速: 55
+    安全汇入: 20
+    让行内圈车队: 25
+    """
+    base_score = 0.0
 
-# Blind spot hidden car
+    if private_facts["decelerate_response"]:
+        base_score += 55.0
+    if private_facts["safe_merge"]:
+        base_score += 20.0
+    if private_facts["yield_convoy"]:
+        base_score += 25.0
+
+    # 获取通用的碰撞拦截(Gate)和惩罚(Penalty)
+    gate = compute_gate(common_facts)
+    penalty = compute_penalty(common_facts) 
+    final_score = base_score * gate * penalty
+
+    return {
+        "base_score": base_score,
+        "gate": gate,
+        "penalty": penalty,
+        "final_score": final_score,
+    }
+
+
+def score_broken_down_vehicle(common_facts, private_facts):
+    base_score = 0.0
+
+    if private_facts["brake_response"]:
+        base_score += 40.0
+    if private_facts["safe_bypass"]:
+        base_score += 40.0
+    if private_facts["resume_route"]:
+        base_score += 20.0
+
+    gate = compute_gate(common_facts)
+    penalty = compute_penalty(common_facts)
+    final_score = base_score * gate * penalty
+
+    return {
+        "base_score": base_score,
+        "gate": gate,
+        "penalty": penalty,
+        "final_score": final_score,
+    }
