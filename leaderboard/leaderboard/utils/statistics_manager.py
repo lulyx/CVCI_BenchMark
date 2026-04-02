@@ -23,14 +23,18 @@ from leaderboard.utils.facts_creator import (
     extract_private_facts_roundabout_merge_conflict,
     extract_private_facts_broken_down_vehicle,
     extract_hht_private_facts_reverse_vehicle,
-    extract_private_facts_ebike_pedestrian_cross
+    extract_private_facts_ebike_pedestrian_cross,
+    extract_private_facts_high_speed_accident,
+    extract_private_facts_ghost_probe,
 )
 from leaderboard.utils.facts_to_score import (
     score_reverse_vehicle,
     score_roundabout_merge_conflict,
     score_broken_down_vehicle,
     score_hht_reverse_vehicle,
-    score_ebike_pedestrian_cross
+    score_ebike_pedestrian_cross,
+    score_high_speed_accident,
+    score_ghost_probe
 )
 
 # 通过 PRIVATE_FACT_EXTRACTORS 和 SCENARIO_SCORERS 动态获取不同场景的 facts extractor 和 scorer
@@ -39,7 +43,9 @@ PRIVATE_FACT_EXTRACTORS = {
     "RoundaboutMergeConflict": extract_private_facts_roundabout_merge_conflict,
     "BrokenDownVehicle": extract_private_facts_broken_down_vehicle,
     "IntersectionCollisionLeftTurn": extract_hht_private_facts_reverse_vehicle,
-    "EbikeAndPedestrianCross": extract_private_facts_ebike_pedestrian_cross
+    "EbikeAndPedestrianCross": extract_private_facts_ebike_pedestrian_cross,
+    "HighSpeedAccident": extract_private_facts_high_speed_accident,
+    "GhostProbeScenario": extract_private_facts_ghost_probe,
     # "pedestrian_probe": extract_private_facts_pedestrian_probe,
     # "construction_detour": extract_private_facts_construction_detour,
 }
@@ -49,7 +55,9 @@ SCENARIO_SCORERS = {
     "RoundaboutMergeConflict": score_roundabout_merge_conflict,
     "BrokenDownVehicle": score_broken_down_vehicle,
     "IntersectionCollisionLeftTurn": score_hht_reverse_vehicle,
-    "EbikeAndPedestrianCross": score_ebike_pedestrian_cross
+    "EbikeAndPedestrianCross": score_ebike_pedestrian_cross,
+    "HighSpeedAccident": score_high_speed_accident,
+    "GhostProbeScenario": score_ghost_probe,
     # "pedestrian_probe": score_pedestrian_probe,
     # "construction_detour": score_construction_detour,
 }
