@@ -34,8 +34,25 @@ def extract_common_facts(criteria_list):
 
     return common_facts
 
+# missing car_private_facats extracts
 
-# reverse_vehicle_private_facats extracts
+# High speed temporary construction_private_facats extracts
+
+# High-speed reckless lane cutting_private_facats extracts
+
+# Highway accident vehicle_private_facats extracts
+
+# Trucks encountered during construction_private_facats extracts
+
+# Drive into the roundabout_private_facats extracts
+
+# Four students crossing the road_private_facats extracts
+
+# avoid a disabled vehicle_private_facats extracts
+
+# Slanted motor and children_private_facats extracts
+
+# reverse vehicle_private_facats extracts
 def extract_private_facts_reverse_vehicle(criteria_list):
     facts = {
         "brake_response": False,
@@ -55,3 +72,6 @@ def extract_private_facts_reverse_vehicle(criteria_list):
 
     return facts
 
+# crazy motor_private_facats extracts
+
+# Blind spot hidden car_private_facats extracts

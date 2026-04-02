@@ -25,8 +25,27 @@ def compute_penalty(common_facts):
 
     return penalty
 
-# 场景特定分数计算
+# scenario specific score calculate
 
+# missing car
+
+# High speed temporary construction
+
+# High-speed reckless lane cutting
+
+# Highway accident vehicle
+
+# Trucks encountered during construction
+
+# Drive into the roundabout
+
+# Four students crossing the road
+
+# avoid a disabled vehicle
+
+# Slanted motor and children
+
+# reverse vehicle
 def score_reverse_vehicle(common_facts, private_facts):
     base_score = 0.0
     # BaseScore: private fatcs calculate
@@ -49,3 +68,6 @@ def score_reverse_vehicle(common_facts, private_facts):
         "final_score": final_score,
     }
 
+# crazy motor
+
+# Blind spot hidden car
