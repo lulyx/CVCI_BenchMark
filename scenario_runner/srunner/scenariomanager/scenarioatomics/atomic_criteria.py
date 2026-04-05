@@ -2394,6 +2394,278 @@ class MinTTCAutoCriterion(Criterion):
 # missing car criterion
 
 # High speed temporary construction criterion
+class BarrierSlowDownCriterion(Criterion):
+    """Check whether the ego slows safely before entering the blocked work zone."""
+
+    def __init__(self, actor, barrier_location, name="BarrierSlowDownCriterion",
+                 obstacle_actors=None,
+                 route_start_location=None, route_end_location=None,
+                 target_lane_location=None, trigger_distance=70.0,
+                 required_speed_drop=4.0, safe_speed=5.0, danger_distance=15.0,
+                 min_hold_duration=0.5, lane_tolerance=1.5, collision_buffer=1.6,
+                 pass_buffer=2.0, terminate_on_failure=False):
+        super().__init__(name, actor, terminate_on_failure=terminate_on_failure)
+        self.barrier_loc = barrier_location
+        self.obstacle_actors = obstacle_actors if obstacle_actors is not None else []
+        self.target_lane_location = target_lane_location
+        self.trigger_distance = trigger_distance
+        self.required_speed_drop = required_speed_drop
+        self.safe_speed = safe_speed
+        self.danger_distance = danger_distance
+        self.min_hold_duration = min_hold_duration
+        self.lane_tolerance = lane_tolerance
+        self.collision_buffer = collision_buffer
+        self.pass_buffer = pass_buffer
+
+        fallback_transform = actor.get_transform() if actor is not None else None
+        self._forward_xy, self._right_xy = _build_route_frame(
+            route_start_location, route_end_location, fallback_transform=fallback_transform)
+        self._route_origin = route_start_location or (
+            actor.get_location() if actor is not None else None)
+
+        self._activated = False
+        self._entry_speed = None
+        self._slowdown_start_time = None
+        self._has_valid_slowdown = False
+        self._target_lane_lateral = None
+        self._collision_sensor = None
+        self._collided_with_obstacle = False
+
+        self.actual_value = 0.0
+        self.success_value = required_speed_drop
+        self.units = "m/s"
+        self.test_status = "FAILURE"
+
+        if self._route_origin is not None and target_lane_location is not None:
+            _, self._target_lane_lateral = _project_to_axis(
+                self._route_origin, target_lane_location, self._forward_xy, self._right_xy)
+
+    def initialise(self):
+        world = CarlaDataProvider.get_world()
+        blueprint = world.get_blueprint_library().find('sensor.other.collision')
+        self._collision_sensor = world.spawn_actor(blueprint, carla.Transform(), attach_to=self.actor)
+        self._collision_sensor.listen(lambda event: self._on_collision(event))
+        super().initialise()
+
+    def terminate(self, new_status):
+        if self._collision_sensor is not None:
+            self._collision_sensor.stop()
+            self._collision_sensor.destroy()
+            self._collision_sensor = None
+        super().terminate(new_status)
+
+    def _in_target_lane(self, ego_location):
+        if self._route_origin is None or self._target_lane_lateral is None:
+            return False
+
+        _, ego_lateral = _project_to_axis(
+            self._route_origin, ego_location, self._forward_xy, self._right_xy)
+        return abs(ego_lateral - self._target_lane_lateral) <= self.lane_tolerance
+
+    def _is_workzone_obstacle(self, other_actor):
+        if other_actor is None:
+            return False
+
+        obstacle_ids = {actor.id for actor in self.obstacle_actors if actor is not None}
+        if other_actor.id in obstacle_ids:
+            return True
+
+        type_id = getattr(other_actor, "type_id", "")
+        return (
+            "constructioncone" in type_id or
+            "trafficwarning" in type_id or
+            "warningconstruction" in type_id or
+            ("static" in type_id and "sidewalk" not in type_id)
+        )
+
+    def _on_collision(self, event):
+        if self._is_workzone_obstacle(event.other_actor):
+            self._collided_with_obstacle = True
+
+    def update(self):
+        new_status = py_trees.common.Status.RUNNING
+        if not self.actor or self.barrier_loc is None:
+            return new_status
+
+        if self.test_status == "SUCCESS":
+            return new_status
+
+        ego_loc = self.actor.get_location()
+        longitudinal_dist, _ = _project_to_axis(
+            ego_loc, self.barrier_loc, self._forward_xy, self._right_xy)
+        ego_speed = _get_actor_speed_mps(self.actor)
+        in_target_lane = self._in_target_lane(ego_loc)
+
+        if self._collided_with_obstacle:
+            self.test_status = "FAILURE"
+            if self._terminate_on_failure:
+                return py_trees.common.Status.FAILURE
+            return new_status
+
+        if not self._activated and 0.0 <= longitudinal_dist <= self.trigger_distance:
+            self._activated = True
+            self._entry_speed = ego_speed
+            self._slowdown_start_time = None
+
+        if not self._activated:
+            return new_status
+
+        speed_drop = max(0.0, (self._entry_speed or ego_speed) - ego_speed)
+        self.actual_value = max(self.actual_value, speed_drop)
+
+        valid_slowdown = speed_drop >= self.required_speed_drop and ego_speed <= self.safe_speed
+        if valid_slowdown:
+            current_time = GameTime.get_time()
+            if self._slowdown_start_time is None:
+                self._slowdown_start_time = current_time
+            elif current_time - self._slowdown_start_time >= self.min_hold_duration:
+                self._has_valid_slowdown = True
+                self.test_status = "SUCCESS"
+                return new_status
+        else:
+            self._slowdown_start_time = None
+
+        if longitudinal_dist <= self.danger_distance and not self._has_valid_slowdown and not in_target_lane:
+            self.test_status = "FAILURE"
+            if self._terminate_on_failure:
+                return py_trees.common.Status.FAILURE
+            return new_status
+
+        if longitudinal_dist < -self.pass_buffer and not self._has_valid_slowdown:
+            self.test_status = "FAILURE"
+            if self._terminate_on_failure:
+                return py_trees.common.Status.FAILURE
+
+        return new_status
+
+
+class BarrierPassByCriterion(Criterion):
+    """Check whether the ego completes a valid left lane change without colliding with other vehicles."""
+
+    def __init__(self, actor, barrier_start_location, name="BarrierPassByCriterion",
+                 obstacle_actors=None,
+                 route_start_location=None, route_end_location=None,
+                 target_lane_location=None, barrier_length=50.0,
+                 lane_tolerance=1.5, min_hold_duration=0.6,
+                 success_buffer=8.0, latest_merge_distance=5.0,
+                 collision_buffer=1.6, terminate_on_failure=False):
+        super().__init__(name, actor, terminate_on_failure=terminate_on_failure)
+        self.barrier_start_location = barrier_start_location
+        self.obstacle_actors = obstacle_actors if obstacle_actors is not None else []
+        self.target_lane_location = target_lane_location
+        self.barrier_length = barrier_length
+        self.lane_tolerance = lane_tolerance
+        self.min_hold_duration = min_hold_duration
+        self.success_buffer = success_buffer
+        self.latest_merge_distance = latest_merge_distance
+        self.collision_buffer = collision_buffer
+
+        fallback_transform = actor.get_transform() if actor is not None else None
+        self._forward_xy, self._right_xy = _build_route_frame(
+            route_start_location, route_end_location, fallback_transform=fallback_transform)
+        self._route_origin = route_start_location or (
+            actor.get_location() if actor is not None else None)
+
+        self._target_lane_lateral = None
+        if self._route_origin is not None and target_lane_location is not None:
+            _, self._target_lane_lateral = _project_to_axis(
+                self._route_origin, target_lane_location, self._forward_xy, self._right_xy)
+
+        self._merge_start_time = None
+        self._has_valid_merge = False
+        self._collision_sensor = None
+        self._collided_with_obstacle = False
+
+        self.actual_value = float("inf")
+        self.success_value = lane_tolerance
+        self.units = "m"
+        self.test_status = "FAILURE"
+
+    def initialise(self):
+        world = CarlaDataProvider.get_world()
+        blueprint = world.get_blueprint_library().find('sensor.other.collision')
+        self._collision_sensor = world.spawn_actor(blueprint, carla.Transform(), attach_to=self.actor)
+        self._collision_sensor.listen(lambda event: self._on_collision(event))
+        super().initialise()
+
+    def terminate(self, new_status):
+        if self._collision_sensor is not None:
+            self._collision_sensor.stop()
+            self._collision_sensor.destroy()
+            self._collision_sensor = None
+        super().terminate(new_status)
+
+    def _get_lateral_error(self, ego_location):
+        if self._route_origin is None or self._target_lane_lateral is None:
+            return None
+
+        _, ego_lateral = _project_to_axis(
+            self._route_origin, ego_location, self._forward_xy, self._right_xy)
+        return abs(ego_lateral - self._target_lane_lateral)
+
+    def _is_relevant_collision(self, other_actor):
+        if other_actor is None:
+            return False
+        type_id = getattr(other_actor, "type_id", "")
+        return "vehicle" in type_id
+
+    def _on_collision(self, event):
+        if self._is_relevant_collision(event.other_actor):
+            self._collided_with_obstacle = True
+
+    def update(self):
+        new_status = py_trees.common.Status.RUNNING
+        if not self.actor or self.barrier_start_location is None or self._target_lane_lateral is None:
+            return new_status
+
+        if self.test_status == "SUCCESS":
+            return new_status
+
+        ego_loc = self.actor.get_location()
+        if self._collided_with_obstacle:
+            self.test_status = "FAILURE"
+            if self._terminate_on_failure:
+                return py_trees.common.Status.FAILURE
+            return new_status
+
+        ego_longitudinal, _ = _project_to_axis(
+            self._route_origin, ego_loc, self._forward_xy, self._right_xy)
+        barrier_longitudinal, _ = _project_to_axis(
+            self._route_origin, self.barrier_start_location, self._forward_xy, self._right_xy)
+        progress_into_barrier = ego_longitudinal - barrier_longitudinal
+
+        lateral_error = self._get_lateral_error(ego_loc)
+        if lateral_error is None:
+            return new_status
+
+        self.actual_value = min(self.actual_value, lateral_error)
+        in_target_lane = lateral_error <= self.lane_tolerance
+
+        if in_target_lane:
+            current_time = GameTime.get_time()
+            if self._merge_start_time is None:
+                self._merge_start_time = current_time
+            elif current_time - self._merge_start_time >= self.min_hold_duration:
+                self._has_valid_merge = True
+        else:
+            if self._has_valid_merge and -1.0 <= progress_into_barrier <= self.barrier_length:
+                self.test_status = "FAILURE"
+                if self._terminate_on_failure:
+                    return py_trees.common.Status.FAILURE
+                return new_status
+            self._merge_start_time = None
+
+        if progress_into_barrier > self.latest_merge_distance and not self._has_valid_merge:
+            self.test_status = "FAILURE"
+            if self._terminate_on_failure:
+                return py_trees.common.Status.FAILURE
+            return new_status
+
+        if self._has_valid_merge and progress_into_barrier > self.barrier_length + self.success_buffer:
+            self.test_status = "SUCCESS"
+            return new_status
+
+        return new_status
 
 # High-speed reckless lane cutting criterion
 
