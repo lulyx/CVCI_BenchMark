@@ -2392,7 +2392,140 @@ class MinTTCAutoCriterion(Criterion):
             self.__class__.__name__, self.status, new_status))
 
 # missing car criterion
+class StaticObstacleSlowDownCriterion(Criterion):
+    """
+    条件1：自车靠近静态障碍车时 必须明显减速
+    """
+    def __init__(
+        self,
+        actor,
+        hazard_actor,
+        trigger_distance=15.0,
+        decel_threshold=3.0,
+        min_speed_after=5.0,
+        name="StaticObstacleSlowDownCriterion",
+        terminate_on_failure=False
+    ):
+        super().__init__(name, actor, terminate_on_failure=terminate_on_failure)
+        self.hazard_actor = hazard_actor
+        self.trigger_distance = trigger_distance
+        self.decel_threshold = decel_threshold
+        self.min_speed_after = min_speed_after
 
+        self._activated = False
+        self._initial_speed = None
+
+    def get_speed(self, actor):
+        if not actor:
+            return 0
+        v = actor.get_velocity()
+        return math.sqrt(v.x**2 + v.y**2 + v.z**2)
+
+    def update(self):
+        if not self.actor or not self.hazard_actor:
+            return py_trees.common.Status.RUNNING
+
+        try:
+            ego_loc = self.actor.get_location()
+            hz_loc = self.hazard_actor.get_location()
+            distance = ego_loc.distance(hz_loc)
+            ego_speed = self.get_speed(self.actor)
+        except:
+            return py_trees.common.Status.RUNNING
+
+        if distance <= self.trigger_distance and not self._activated:
+            self._activated = True
+            self._initial_speed = ego_speed
+
+        if self._activated:
+            if ego_speed <= self.min_speed_after:
+                return py_trees.common.Status.SUCCESS
+            if self._initial_speed is not None and (self._initial_speed - ego_speed) >= self.decel_threshold:
+                return py_trees.common.Status.SUCCESS
+
+        return py_trees.common.Status.RUNNING
+
+
+
+class StaticObstacleNoCollisionCriterion(Criterion):
+    """
+    条件2：自车与障碍车无任何碰撞（安全版，不删除车辆）
+    """
+    def __init__(
+        self,
+        actor,
+        hazard_actor,
+        name="StaticObstacleNoCollisionCriterion",
+        terminate_on_failure=True
+    ):
+        super().__init__(name, actor, terminate_on_failure=terminate_on_failure)
+        self.hazard_actor = hazard_actor
+        self.collision_distance = 1.0  # 小于1米判定为碰撞风险
+
+    def update(self):
+        if not self.actor or not self.hazard_actor:
+            return py_trees.common.Status.RUNNING
+
+        try:
+            ego_loc = self.actor.get_location()
+            obs_loc = self.hazard_actor.get_location()
+            dist = ego_loc.distance(obs_loc)
+
+            # 距离过近 → 判定失败
+            if dist < self.collision_distance:
+                return py_trees.common.Status.FAILURE
+        except:
+            pass
+
+        return py_trees.common.Status.RUNNING
+
+    def get_result(self):
+        return True
+
+
+
+
+class StaticObstacleSafePassCriterion(Criterion):
+    """
+    条件3：无碰撞、安全变道通过障碍车
+    """
+    def __init__(
+        self,
+        actor,
+        hazard_actor,
+        pass_margin=5.0,
+        lateral_safe_threshold=1.5,
+        route_center_y=45.1,
+        name="StaticObstacleSafePassCriterion",
+        terminate_on_failure=False
+    ):
+        super().__init__(name, actor, terminate_on_failure=terminate_on_failure)
+        self.hazard_actor = hazard_actor
+        self.pass_margin = pass_margin
+        self.lateral_safe_threshold = lateral_safe_threshold
+        self.route_center_y = route_center_y
+
+    def update(self):
+        if not self.actor or not self.hazard_actor:
+            return py_trees.common.Status.RUNNING
+
+        try:
+            ego_loc = self.actor.get_location()
+            hz_loc = self.hazard_actor.get_location()
+        except:
+            return py_trees.common.Status.RUNNING
+
+        if ego_loc.x < hz_loc.x:
+            return py_trees.common.Status.RUNNING
+
+        lateral_offset = abs(ego_loc.y - self.route_center_y)
+        if lateral_offset < self.lateral_safe_threshold:
+            return py_trees.common.Status.RUNNING
+
+        if ego_loc.x > hz_loc.x + self.pass_margin:
+            return py_trees.common.Status.SUCCESS
+
+        return py_trees.common.Status.RUNNING
 # High speed temporary construction criterion
 class BarrierSlowDownCriterion(Criterion):
     """Check whether the ego slows safely before entering the blocked work zone."""
